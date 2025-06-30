@@ -236,5 +236,6 @@ systemctl reload nginx
 echo -e "\n✅ Installation complete!"
 echo " • Proxy is listening on https://$SERVER_NAME:8443"
 echo " • Hook script installed at $HOOK_SCRIPT"
-echo " • Check logs: /var/log/pve-hook-gpu.log & /var/log/nginx/pve-proxy-error.log"
+echo " • Check logs: tail /var/log/pve-hook-gpu.log & /var/log/nginx/pve-proxy-error.log"
 echo " • Tag any VM with 'no-gpu-autopick' to skip."
+echo " • Does not work with LXCs or AMD cards currently."
