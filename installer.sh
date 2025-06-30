@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Simply run chmod +x installer.sh and follow the prompts.
 set -euo pipefail
 
 # ─── 1. CHECK ROOT ─────────────────────────────────────────────────────────────
