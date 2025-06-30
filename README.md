@@ -60,4 +60,3 @@ systemctl reload nginx
 -Which PCI bus classes to scan
 -Log-file path and verbosity
 -Fallback display type (e.g., qxl, virtio-gpu)
-
