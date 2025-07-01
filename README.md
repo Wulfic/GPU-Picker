@@ -1,2 +1,1 @@
-# GPU-Picker
-Automatically picks the 1st available GPU in a system and assigns it to the VM upon boot, if no other GPUs are available then a QXL display is used instead.
+download or copy/paste into a new file called installer.sh and run chmod +x installer.sh
