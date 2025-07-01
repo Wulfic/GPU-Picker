@@ -68,6 +68,7 @@ curl -fsSL https://raw.githubusercontent.com/Wulfic/GPU-Picker/main/gpu-autopick
   -o /usr/local/share/pve-hook-scripts/gpu-autopick.sh
 
 chmod +x /usr/local/share/pve-hook-scripts/gpu-autopick.sh
+
 chmod 755 /usr/local/share/pve-hook-scripts/gpu-autopick.sh
 
 ln -sf /etc/nginx/sites-available/pve-proxy.conf /etc/nginx/sites-enabled/pve-proxy.conf
@@ -75,9 +76,13 @@ ln -sf /etc/nginx/sites-available/pve-proxy.conf /etc/nginx/sites-enabled/pve-pr
 nginx -t && systemctl reload nginx
 
 echo "########################################################################"
+
 echo "Use the new interface page moving forward or the script will not work!"
+
 echo "Login and use as normal."
+
 echo "Your new address is "${IP}":8443"
+
 echo "########################################################################"
 
 
