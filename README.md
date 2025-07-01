@@ -52,6 +52,8 @@ chmod +x installer.sh
 
 ⚙️ Test-Suite
 
+This is intended to perform a dry-run install before actually going into production.
+
 download test-suite.sh or copy/paste into a new file called test-suite.sh and run:
 
 chmod +x test-suite.sh
