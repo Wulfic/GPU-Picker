@@ -95,8 +95,9 @@ echo "########################################################################"
 ######################################################################################################
 
 
-#🔧 Configuration Tips
-Edit /etc/nginx/sites-available/pve-proxy.conf to change:
+🔧 Configuration Tips
+
+🔧Edit /etc/nginx/sites-available/pve-proxy.conf to change:
 
 -Listening port (443 vs. 8443)
 
@@ -104,10 +105,9 @@ Edit /etc/nginx/sites-available/pve-proxy.conf to change:
 
 -Any custom proxy timeouts or buffer sizes
 
+#
 
-
-
-Edit /usr/local/share/pve-hook-scripts/gpu-autopick.sh
+🔧Edit /usr/local/share/pve-hook-scripts/gpu-autopick.sh
 
 -Which PCI bus classes to scan
 
