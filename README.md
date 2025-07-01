@@ -58,6 +58,7 @@ Nginx Proxy Configuration (pve-proxy.conf) An Nginx (or OpenResty) site that fro
 
 
 #Copy from here out
+
 #!/bin/bash
 
 # Comment out enterprise Proxmox repos
@@ -102,6 +103,7 @@ ln -sf /etc/nginx/sites-available/pve-proxy.conf /etc/nginx/sites-enabled/pve-pr
 
 # Test and reload NGINX
 nginx -t && systemctl reload nginx
+
 #End of copy
 
 
