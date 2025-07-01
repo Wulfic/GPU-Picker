@@ -46,6 +46,16 @@ Nginx Proxy Configuration (pve-proxy.conf) An Nginx (or OpenResty) site that fro
 download installer.sh or copy/paste into a new file called installer.sh and run:
 
 chmod +x installer.sh
+./installer.sh
+
+#######################################################################################
+
+⚙️ Test-Suite
+
+download test-suite.sh or copy/paste into a new file called test-suite.sh and run:
+
+chmod +x test-suite.sh
+./test-suite.sh
 
 #######################################################################################
 
