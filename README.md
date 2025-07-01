@@ -1,15 +1,15 @@
-Proxmox GPU Auto-Passthrough 🚀
+#Proxmox GPU Auto-Passthrough 🚀
 Turn your Proxmox VE host into a dynamic, multi-GPU powerhouse—fully automatic!
 
 
 
-📦 Components
+#📦 Components
 GPU Auto-Pick Hook Script (gpu-autopick.sh) A Proxmox VM “hook script” that runs just before each VM boots.
 Nginx Proxy Configuration (pve-proxy.conf) An Nginx (or OpenResty) site that fronts your Proxmox web UI.
 
 
 
-🔍 Features
+#🔍 Features
 1. GPU Auto-Pick Hook Script
 
 -Dynamic GPU assignment Scans for all discrete (VGA/3D) controllers and detects which are free.
@@ -25,33 +25,16 @@ Nginx Proxy Configuration (pve-proxy.conf) An Nginx (or OpenResty) site that fro
 -Configurable Override its behavior via environment variables at the top of the script.
 
 
-2. Nginx Proxy Configuration
 
--Secure HTTPS Terminates SSL on port 8443 (or 443), encrypting all Proxmox web traffic.
-
--Smooth Web Console Proxies Proxmox’s no-VNC/HTML5 console without socket errors.
-
--Large-file uploads Bumps client-max_body_size for seamless ISO, backup, and template uploads.
-
--Hook-script integration Triggers the GPU-picker script on VM start/stop via embedded Lua (or shell) logic.
-
-
-
-📋 Prerequisites
+#📋 Prerequisites
 
 -Proxmox VE (any recent version)
-
--Nginx with lua-nginx-module (or OpenResty)
-
--pvesh CLI (bundled with Proxmox)
-
--A valid SSL certificate & private key for your Proxmox UI
 
 -At least 2 NVIDIA GPUs (one for host console + ≥1 free for VMs)
 
 
 
-⚙️ Quick-Start Installation
+#⚙️ Quick-Start Installation
 
 -Copy and paste the following into your Proxmox host shell:
 
@@ -60,6 +43,8 @@ Nginx Proxy Configuration (pve-proxy.conf) An Nginx (or OpenResty) site that fro
 #Copy from here out
 
 #!/bin/bash
+
+# This is intended for a fresh install of Proxmox
 
 # Comment out enterprise Proxmox repos
 sed -i '/enterprise.proxmox.com/ s/^/# /' /etc/apt/sources.list /etc/apt/sources.list.d/*.list
@@ -104,11 +89,18 @@ ln -sf /etc/nginx/sites-available/pve-proxy.conf /etc/nginx/sites-enabled/pve-pr
 # Test and reload NGINX
 nginx -t && systemctl reload nginx
 
+echo "########################################################################"
+echo "Use the new interface page moving forward or the script will not work!"
+echo "Login and use as normal."
+echo "Your new address is "${IP}":8443"
+echo "########################################################################"
+
+
 #End of copy
 
 
-🔧 Configuration Tips
--Edit /etc/nginx/sites-available/pve-proxy.conf to change:
+#🔧 Configuration Tips
+Edit /etc/nginx/sites-available/pve-proxy.conf to change:
 
 -Listening port (443 vs. 8443)
 
@@ -118,7 +110,8 @@ nginx -t && systemctl reload nginx
 
 
 
--At the top of gpu-autopick.sh, adjust:
+
+Edit /usr/local/share/pve-hook-scripts/gpu-autopick.sh
 
 -Which PCI bus classes to scan
 
