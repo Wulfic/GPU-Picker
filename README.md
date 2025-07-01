@@ -1,13 +1,16 @@
+######################################################################################################
+
 Proxmox GPU Auto-Passthrough 🚀
 Turn your Proxmox VE host into a dynamic, multi-GPU powerhouse—fully automatic!
 
+######################################################################################################
 
 
 📦 Components
 GPU Auto-Pick Hook Script (gpu-autopick.sh) A Proxmox VM “hook script” that runs just before each VM boots.
 Nginx Proxy Configuration (pve-proxy.conf) An Nginx (or OpenResty) site that fronts your Proxmox web UI.
 
-
+######################################################################################################
 
 🔍 Features
 1. GPU Auto-Pick Hook Script
@@ -24,6 +27,7 @@ Nginx Proxy Configuration (pve-proxy.conf) An Nginx (or OpenResty) site that fro
 
 -Configurable Override its behavior via environment variables at the top of the script.
 
+######################################################################################################
 
 
 📋 Prerequisites
@@ -32,6 +36,7 @@ Nginx Proxy Configuration (pve-proxy.conf) An Nginx (or OpenResty) site that fro
 
 -At least 2 NVIDIA GPUs (one for host console + ≥1 free for VMs)
 
+######################################################################################################
 
 
 ⚙️ Quick-Start Installation
@@ -87,6 +92,8 @@ echo "########################################################################"
 
 
 #End of copy
+
+######################################################################################################
 
 
 #🔧 Configuration Tips
