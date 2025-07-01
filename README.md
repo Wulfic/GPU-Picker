@@ -13,7 +13,6 @@ Nginx Proxy Configuration (pve-proxy.conf) An Nginx (or OpenResty) site that fro
 ######################################################################################################
 
 🔍 Features
-1. GPU Auto-Pick Hook Script
 
 -Dynamic GPU assignment Scans for all discrete (VGA/3D) controllers and detects which are free.
 
