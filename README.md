@@ -28,7 +28,7 @@ Nginx Proxy Configuration (pve-proxy.conf) An Nginx (or OpenResty) site that fro
 
 📋 Prerequisites
 
--Proxmox VE (any recent version)
+-Proxmox VE (any recent version)(Fresh Install)
 
 -At least 2 NVIDIA GPUs (one for host console + ≥1 free for VMs)
 
@@ -39,12 +39,7 @@ Nginx Proxy Configuration (pve-proxy.conf) An Nginx (or OpenResty) site that fro
 -Copy and paste the following into your Proxmox host shell:
 
 
-
-#Copy from here out
-
 #!/bin/bash
-
-# This is intended for a fresh install of Proxmox
 
 sed -i '/enterprise.proxmox.com/ s/^/# /' /etc/apt/sources.list /etc/apt/sources.list.d/*.list
 
