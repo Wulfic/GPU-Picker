@@ -1,52 +1,45 @@
 #!/usr/bin/env bash
 #
 # NVIDIA v2/v3-only Auto-Picker for Proxmox VE
+#   – Ignores slot 1 & host console GPU
+#   – Dynamically discovers NVIDIA devices
+#   – Only counts GPUs assigned to *running* VMs as “in use”
+#   – Allows IOMMU groups of 1 (GPU alone) or 2 (GPU+audio)
+#   – Binds both GPU (hostpci0) and its audio function (hostpci1)
+#   – Clears mapping/vga on post-stop
 # ----------------------------------------------------------------------------
-# Automatically assigns an unused NVIDIA GPU (plus its audio function) to a VM
-# on VM pre-start, and cleans up GPU mappings on VM post-stop. 
-# Ideal for systems with multiple NVIDIA cards where you want dynamic passthrough.
 
-### Section 1 – Argument Parsing & Environment Setup
-# 1.1) Read VMID and EVENT from arguments. VMID is required; EVENT defaults to “pre-start”.
-VMID="${1:?Usage: $0 VMID [pre-start|post-stop]}"   # VM numeric ID (from qm)
-EVENT="${2:-pre-start}"                             # “pre-start” or “post-stop”
-NODE="$(hostname -s)"                               # short hostname of this Proxmox node
+# 1) Grab & default args before “set -u”
+VMID="${1:?Usage: $0 VMID [pre-start|post-stop]}"
+EVENT="${2:-pre-start}"
+NODE="$(hostname -s)"
 
-# 1.2) All stdout and stderr go to our log file for debugging
+# 2) All output → our log
 LOG=/var/log/pve-hook-gpu.log
 exec >>"$LOG" 2>&1
 
-# 1.3) Errors trigger trap (to prevent hook abort). Only an explicit exit 1 stops the hook.
+# 3) Only “exit 1” aborts; any other error just logs & exit 0
 trap 'exit 0' ERR
-set -euo pipefail  # -e: exit on error, -u: fail on undefined var, -o pipefail: catch pipeline errors
+set -euo pipefail
 
-# 1.4) Helper function: timestamped log entries
-log() {
-  echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*"
-}
+log() { echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*"; }
 
-# 1.5) If the hook is triggered for anything other than pre-start/post-stop, do nothing
-if [[ "$EVENT" != pre-start && "$EVENT" != post-stop ]]; then
-  exit 0
-fi
+# Only handle pre-start / post-stop
+[[ "$EVENT" != pre-start && "$EVENT" != post-stop ]] && exit 0
 
-### Section 2 – Single-Instance Guard
-# Prevent multiple concurrent runs for the same VMID by creating a lock directory.
+# ==== SINGLE-INSTANCE GUARD via mkdir() ====
 LOCK_BASE="/run/lock/pve-gpu-autopick.$VMID"
 LOCKDIR="${LOCK_BASE}.lck"
 mkdir -p /run/lock
 if mkdir "$LOCKDIR" 2>/dev/null; then
-  # On any script exit, remove the lock directory
   trap 'rmdir "$LOCKDIR"' EXIT
   log "vm$VMID → acquired single-instance lock"
 else
-  log "vm$VMID → another instance running, exiting"
+  log "another instance for vm$VMID is running, exit"
   exit 0
 fi
 
-### Section 3 – Helper Functions
-# 3.1) run_set: wrap `pvesh set` so failures don't abort the hook.
-#       pvesh is Proxmox VE’s REST API command-line tool.
+# Helper: call pvesh set without aborting the hook
 run_set() {
   if pvesh set /nodes/$NODE/qemu/"$VMID"/config "$@" &>/dev/null; then
     log "vm$VMID → pvesh set: $*"
@@ -55,8 +48,7 @@ run_set() {
   fi
 }
 
-# 3.2) clear_passthru: remove any existing GPU passthrough or VGA settings
-#       --delete hostpci0/1, vga, mapping
+# Helper: clear passthrough/mapping/vga  (split deletes so one bad key won't abort)
 clear_passthru() {
   for key in hostpci0 hostpci1 vga mapping; do
     run_set --delete "$key"
@@ -64,8 +56,9 @@ clear_passthru() {
   log "vm$VMID → cleared passthrough + mapping"
 }
 
-### Section 4 – Skip Tagged VMs
-# If this VM’s config contains the tag “no-gpu-autopick”, skip all logic.
+
+
+# 0) Skip VMs tagged no-gpu-autopick
 if pvesh get /nodes/$NODE/qemu/"$VMID"/config \
      --output-format=json \
    | jq -er '.tags // "" | contains("no-gpu-autopick")' &>/dev/null; then
@@ -73,163 +66,131 @@ if pvesh get /nodes/$NODE/qemu/"$VMID"/config \
   exit 0
 fi
 
-### Section 5 – Identify Host Console GPU
-# We don’t want to steal the GPU the host is using for its console (framebuffer).
+# 1) Detect host console GPU (slot 1)
 HOST_GPU=""
 if [[ -e /sys/class/graphics/fb0/device ]]; then
-  # Follow the symlink to the PCI device (e.g., “0000:01:00.0”)
   HOST_GPU="$(basename "$(readlink -f /sys/class/graphics/fb0/device)")"
   log "detected host console GPU: $HOST_GPU"
 fi
 
-### Section 6 – Handle post-stop (Cleanup)
+# 2) On post-stop, just clear & exit
 if [[ "$EVENT" == post-stop ]]; then
-  # On VM stop: remove passthrough settings so GPU is free again.
   clear_passthru
   exit 0
 fi
 
-### Section 7 – Begin pre-start Workflow
+# ==== PRE-START ====
 log "vm$VMID → pre-start"
+
 CONF=/etc/pve/qemu-server/"$VMID".conf
 
-### Section 8 – Unbind any stale vfio-pci devices
-# Sometimes VMs crash and leave devices bound to vfio-pci. Clean them up.
+# 3) Unbind stale vfio-pci globally
 for D in /sys/bus/pci/devices/0000:[0-9a-f][0-9a-f]:00.0; do
   [[ -d "$D/driver" ]] || continue
   [[ "$(basename "$(readlink -f "$D/driver")")" == "vfio-pci" ]] || continue
-  DEV="${D##*/}"  # strip path, get “0000:0x:00.0”
+  DEV="${D##*/}"
   echo "$DEV" > /sys/bus/pci/drivers/vfio-pci/unbind 2>/dev/null || true
   log "cleanup: unbound stale vfio-pci $DEV"
 done
 
-### Section 9 – Build List of NVIDIA GPU Candidates
+# 4) Build NVIDIA candidate list
 CANDS=()
 for P in /sys/bus/pci/devices/0000:*:00.0; do
   DEV="${P##*/}"
-  # Skip PCI slot 1 (0x01:00.0) – typically primary GPU
-  if [[ "$DEV" =~ ^0000:01: ]]; then
-    log "skip $DEV (slot 1)"
-    continue
-  fi
-  # Skip the host console GPU
-  if [[ "$DEV" == "$HOST_GPU" ]]; then
-    log "skip $DEV (host console)"
-    continue
-  fi
-  # Check vendor; 0x10de means NVIDIA
+  [[ "$DEV" =~ ^0000:01: ]]   && { log "skip $DEV (slot 1)"; continue; }
+  [[ "$DEV" == "$HOST_GPU" ]] && { log "skip $DEV (host console)"; continue; }
   vend=$(<"$P/vendor")
-  if [[ "$vend" != "0x10de" ]]; then
-    log "skip $DEV (vendor $vend)"
-    continue
-  fi
-  # Add to our candidate list
+  [[ "$vend" == "0x10de" ]]   || { log "skip $DEV (vendor $vend)"; continue; }
   CANDS+=("$DEV")
 done
-log "vm$VMID → candidate GPUs: ${CANDS[*]:-none}"
+log "vm$VMID → candidate slots: ${CANDS[*]:-none}"
 
-### Section 10 – Find GPUs Already Used by Running VMs
-# 10.1) List all running VMs (qm list shows VMID, status)
+# 5) GPUs in use by running VMs
 mapfile -t RUNNING < <(qm list | awk '$3=="running"{print $1}')
-# 10.2) For each running VM, extract hostpci assignments from its config
 USED="$(
   for VM in "${RUNNING[@]}"; do
     sed -n 's/^hostpci[0-9]\+: *\(0000:[0-9a-f:.]\+\).*/\1/p' \
       "/etc/pve/qemu-server/$VM.conf"
   done | sort -u
 )"
-log "vm$VMID → GPUs in use: ${USED:-none}"
+log "vm$VMID → GPUs in use by running guests: ${USED:-none}"
 
-### Section 11 – Check If VM Already Has a GPU Assigned
-# If config has hostpci0, VM was previously assigned a GPU.
+# 6) If VM already has hostpci0, skip or clear
 EXIST=$(sed -En 's/^hostpci0:\s+([^,]+).*/\1/p' "$CONF" || echo "")
 if [[ -n "$EXIST" ]]; then
-  # If that GPU is now in use elsewhere, clear and reassign
   if grep -Fxq "$EXIST" <<<"$USED"; then
     log "vm$VMID → existing hostpci0 ($EXIST) stolen—clearing"
     clear_passthru
   else
-    # If it’s still free, keep it
-    log "vm$VMID → existing hostpci0 ($EXIST) still free—keeping"
+    log "vm$VMID → existing hostpci0 ($EXIST) still free—skipping"
     exit 0
   fi
 fi
 
-### Section 12 – Select a Free NVIDIA GPU
+# 7) Pick the first free, non-vfio GPU
 FREE=""
 for DEV in "${CANDS[@]}"; do
-  # Skip if in use
   if grep -qxF "$DEV" <<<"$USED"; then
-    log "skip $DEV (in use)"
-    continue
+    log "skip $DEV (in use)"; continue
   fi
-  # Skip if already bound to vfio-pci on the host
   drv=$(lspci -k -s "$DEV" 2>/dev/null | awk -F': ' '/Kernel driver in use/ {print $2}')
-  if [[ "$drv" == "vfio-pci" ]]; then
-    log "skip $DEV (already vfio-pci)"
-    continue
-  fi
+  [[ "$drv" == "vfio-pci" ]] && { log "skip $DEV (already vfio)"; continue; }
   FREE="$DEV"
   break
 done
 
-### Section 13 – Fallback to QXL if No Free GPU Found
+# 8) No free GPU? fall back to QXL if needed
 if [[ -z "$FREE" ]]; then
-  # Read original vga setting from VM config (if any)
   orig_vga=$(grep -m1 '^vga:' "$CONF" | awk '{print $2}' || echo "")
-  log "vm$VMID → no free GPU; original vga='$orig_vga'"
+  log "vm$VMID → no free GPU, original vga='$orig_vga'"
   if [[ -z "$orig_vga" || "$orig_vga" == "none" ]]; then
-    # Default to QXL paravirtualized graphics
-    log "vm$VMID → falling back to QXL vga"
+    log "vm$VMID → falling back to qxl"
     clear_passthru
     run_set --vga qxl
   else
-    # Preserve whatever VGA was explicitly set
-    log "vm$VMID → preserving vga='$orig_vga'"
+    log "vm$VMID → keeping vga='$orig_vga'"
   fi
   exit 0
 fi
-log "vm$VMID → selected GPU $FREE for passthrough"
 
-### Section 14 – Bind Selected GPU (and Audio) to vfio-pci
-# 14.1) Unbind GPU from its current driver (e.g., nouveau or nvidia)
+# ==== BIND FREE GPU + AUDIO SIBLING ====
+log "vm$VMID → selecting GPU $FREE"
+
+# (a) Unbind current driver
 if [[ -d /sys/bus/pci/devices/$FREE/driver ]]; then
-  OLD_DRV=$(basename "$(readlink -f /sys/bus/pci/devices/$FREE/driver)")
-  echo "$FREE" > /sys/bus/pci/drivers/$OLD_DRV/unbind 2>/dev/null \
-    && log "unbound $FREE from $OLD_DRV"
+  OLD=$(basename "$(readlink -f /sys/bus/pci/devices/$FREE/driver)")
+  echo "$FREE" > /sys/bus/pci/drivers/$OLD/unbind 2>/dev/null \
+    && log "unbound $FREE from $OLD"
 fi
 
-# 14.2) Register this GPU’s vendor/device IDs with vfio-pci and bind it
-ven_id=$(sed 's/^0x//' /sys/bus/pci/devices/$FREE/vendor)
-dev_id=$(sed 's/^0x//' /sys/bus/pci/devices/$FREE/device)
-echo "$ven_id $dev_id" > /sys/bus/pci/drivers/vfio-pci/new_id 2>/dev/null \
-  && log "vfio-pci new_id($ven_id $dev_id)"
+# (b) Bind GPU → vfio-pci
+ven=$(sed 's/^0x//' /sys/bus/pci/devices/$FREE/vendor)
+dev=$(sed 's/^0x//' /sys/bus/pci/devices/$FREE/device)
+echo "$ven $dev" > /sys/bus/pci/drivers/vfio-pci/new_id 2>/dev/null \
+  && log "new_id($ven $dev)"
 echo "$FREE" > /sys/bus/pci/drivers/vfio-pci/bind 2>/dev/null \
   && log "bound GPU $FREE → vfio-pci"
 
-# 14.3) Also bind the audio function (same PCI slot, function .1)
+# (c) Bind audio function if present
 AUDIO="${FREE%.*}.1"
 if [[ -e /sys/bus/pci/devices/$AUDIO ]]; then
   if [[ -d /sys/bus/pci/devices/$AUDIO/driver ]]; then
-    ADRV=$(basename "$(readlink -f /sys/bus/pci/devices/$AUDIO/driver)")
-    echo "$AUDIO" > /sys/bus/pci/drivers/$ADRV/unbind 2>/dev/null \
-      && log "unbound audio $AUDIO from $ADDRV"
+    AD=$(basename "$(readlink -f /sys/bus/pci/devices/$AUDIO/driver)")
+    echo "$AUDIO" > /sys/bus/pci/drivers/$AD/unbind 2>/dev/null \
+      && log "unbound audio $AUDIO from $AD"
   fi
-  van_id=$(sed 's/^0x//' /sys/bus/pci/devices/$AUDIO/vendor)
-  dan_id=$(sed 's/^0x//' /sys/bus/pci/devices/$AUDIO/device)
-  echo "$van_id $dan_id" > /sys/bus/pci/drivers/vfio-pci/new_id 2>/dev/null \
-    && log "vfio-pci new_id(audio $van_id $dan_id)"
+  van=$(sed 's/^0x//' /sys/bus/pci/devices/$AUDIO/vendor)
+  dan=$(sed 's/^0x//' /sys/bus/pci/devices/$AUDIO/device)
+  echo "$van $dan" > /sys/bus/pci/drivers/vfio-pci/new_id 2>/dev/null \
+    && log "new_id(audio $van $dan)"
   echo "$AUDIO" > /sys/bus/pci/drivers/vfio-pci/bind 2>/dev/null \
     && log "bound audio $AUDIO → vfio-pci"
 fi
 
-### Section 15 – Configure VM for GPU Passthrough
-# Clear any old passthrough first, then set new hostpci entries and disable paravirt VGA.
+# (d) Apply passthrough to the VM
 clear_passthru
-run_set \
-  --hostpci0 "$FREE,pcie=1,x-vga=1" \    # assign GPU on PCIe, enable x-vga
-  --hostpci1 "${AUDIO:-},pcie=1" \        # assign audio function if present
-  --vga none                              # disable QXL/VGA emulation
+run_set --hostpci0 "$FREE,pcie=1,x-vga=1" \
+        --hostpci1 "${AUDIO:-}",pcie=1 \
+        --vga none
 
-log "vm$VMID → GPU $FREE passed through (audio: ${AUDIO:-none})"
 exit 0
